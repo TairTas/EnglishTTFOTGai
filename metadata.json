@@ -1,0 +1,7 @@
+{
+  "name": "ttfotg AI",
+  "description": "An intelligent English essay checker that analyzes grammar, meaning, and CEFR level using Gemini. Supports text input and photo-to-text formatting.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
