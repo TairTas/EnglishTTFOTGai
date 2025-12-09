@@ -1,18 +1,24 @@
 import { GoogleGenAI, Type, Schema, LiveServerMessage, Modality } from "@google/genai";
 import { EssayAnalysis, GeminiModel, ChatMessage, TranslationResult } from "../types";
 
-// Helper to robustly get the API Key in different environments (Node, Vite, etc.)
+// Helper to robustly get the API Key in different environments
 const getApiKey = () => {
-  // 1. Check process.env (Standard Node / Webpack)
-  if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
-    return process.env.API_KEY;
-  }
-  // 2. Check import.meta.env (Vite / Vercel)
-  // @ts-ignore - import.meta is a valid property in ES modules
+  // 1. Priority: Check Vite/Vercel environment (Standard for this project)
+  // @ts-ignore
   if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_KEY) {
     // @ts-ignore
     return import.meta.env.VITE_API_KEY;
   }
+  
+  // 2. Fallback: Check process.env (Node/Webpack/Legacy)
+  try {
+    if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
+      return process.env.API_KEY;
+    }
+  } catch (e) {
+    // Ignore reference errors if process is not defined
+  }
+
   return '';
 };
 
