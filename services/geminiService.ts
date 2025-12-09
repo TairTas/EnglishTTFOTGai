@@ -1,7 +1,22 @@
 import { GoogleGenAI, Type, Schema, LiveServerMessage, Modality } from "@google/genai";
 import { EssayAnalysis, GeminiModel, ChatMessage, TranslationResult } from "../types";
 
-const apiKey = process.env.API_KEY || '';
+// Helper to robustly get the API Key in different environments (Node, Vite, etc.)
+const getApiKey = () => {
+  // 1. Check process.env (Standard Node / Webpack)
+  if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
+    return process.env.API_KEY;
+  }
+  // 2. Check import.meta.env (Vite / Vercel)
+  // @ts-ignore - import.meta is a valid property in ES modules
+  if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_KEY) {
+    // @ts-ignore
+    return import.meta.env.VITE_API_KEY;
+  }
+  return '';
+};
+
+const apiKey = getApiKey();
 const ai = new GoogleGenAI({ apiKey });
 
 // Shared schema properties

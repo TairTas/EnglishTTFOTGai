@@ -55,6 +55,7 @@ export const SpeakingPractice: React.FC<SpeakingPracticeProps> = ({ model }) => 
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const inputSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const isConnectedRef = useRef(false);
 
   // Transcription state buffers
   const currentInputTransRef = useRef('');
@@ -112,13 +113,14 @@ export const SpeakingPractice: React.FC<SpeakingPracticeProps> = ({ model }) => 
         const processor = inputCtx.createScriptProcessor(4096, 1, 1);
         
         processor.onaudioprocess = (e) => {
+             // Check if session is actually established to prevent WebSocket errors
+             if (!isConnectedRef.current || !sessionRef.current) return;
+
              // Visualizer logic
              const inputData = e.inputBuffer.getChannelData(0);
              let sum = 0;
              for(let i=0; i<inputData.length; i++) sum += inputData[i] * inputData[i];
              setVolumeLevel(Math.sqrt(sum / inputData.length) * 5); // Scale up for visibility
-
-             if (!sessionRef.current) return;
 
              // Convert Float32 to Int16 PCM
              const pcm16 = floatTo16BitPCM(inputData);
@@ -126,12 +128,18 @@ export const SpeakingPractice: React.FC<SpeakingPracticeProps> = ({ model }) => 
              
              // Send to Gemini
              sessionRef.current.then(session => {
-                 session.sendRealtimeInput({
-                     media: {
-                         mimeType: 'audio/pcm;rate=16000',
-                         data: base64Data
-                     }
-                 });
+                 // Double check inside the promise to ensure we don't send to a closed session
+                 if (isConnectedRef.current) {
+                    session.sendRealtimeInput({
+                        media: {
+                            mimeType: 'audio/pcm;rate=16000',
+                            data: base64Data
+                        }
+                    });
+                 }
+             }).catch(err => {
+                 // Silently catch errors if session closes mid-flight
+                 console.debug("Session likely closed", err);
              });
         };
 
@@ -146,6 +154,7 @@ export const SpeakingPractice: React.FC<SpeakingPracticeProps> = ({ model }) => 
             onopen: () => {
                 console.log("Gemini Live Connected");
                 setIsConnected(true);
+                isConnectedRef.current = true;
                 setIsProcessing(false);
             },
             onmessage: async (message: LiveServerMessage) => {
@@ -215,10 +224,12 @@ export const SpeakingPractice: React.FC<SpeakingPracticeProps> = ({ model }) => 
             onclose: () => {
                 console.log("Gemini Live Disconnected");
                 setIsConnected(false);
+                isConnectedRef.current = false;
             },
             onerror: (e) => {
                 console.error("Gemini Live Error", e);
                 setIsConnected(false);
+                isConnectedRef.current = false;
                 setIsProcessing(false);
                 const errorMsg = (e as any).message || "An unknown error occurred.";
                 alert(`Connection Error: ${errorMsg}\n\nPlease refresh or try again.`);
@@ -233,14 +244,11 @@ export const SpeakingPractice: React.FC<SpeakingPracticeProps> = ({ model }) => 
   };
 
   const disconnect = () => {
-    if (sessionRef.current) {
-        sessionRef.current.then(s => s.close());
-        sessionRef.current = null;
-    }
-    if (streamRef.current) {
-        streamRef.current.getTracks().forEach(t => t.stop());
-        streamRef.current = null;
-    }
+    // 1. Mark as disconnected immediately to stop the processor loop
+    isConnectedRef.current = false;
+    setIsConnected(false);
+
+    // 2. Stop Processor and Input Source
     if (processorRef.current) {
         processorRef.current.disconnect();
         processorRef.current = null;
@@ -249,13 +257,30 @@ export const SpeakingPractice: React.FC<SpeakingPracticeProps> = ({ model }) => 
         inputSourceRef.current.disconnect();
         inputSourceRef.current = null;
     }
+
+    // 3. Stop Tracks
+    if (streamRef.current) {
+        streamRef.current.getTracks().forEach(t => t.stop());
+        streamRef.current = null;
+    }
+
+    // 4. Close Session
+    if (sessionRef.current) {
+        sessionRef.current.then(s => s.close()).catch(() => {});
+        sessionRef.current = null;
+    }
+
+    // 5. Close Audio Context
     if (audioContextRef.current) {
-        audioContextRef.current.close();
+        audioContextRef.current.close().catch(() => {});
         audioContextRef.current = null;
     }
-    sourcesRef.current.forEach(s => s.stop());
+
+    // 6. Stop all playing sounds
+    sourcesRef.current.forEach(s => {
+        try { s.stop(); } catch(e) {}
+    });
     sourcesRef.current.clear();
-    setIsConnected(false);
   };
 
   const handleFinish = async () => {
